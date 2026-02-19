@@ -8,7 +8,7 @@ import binascii
 import time
 
 from fastapi import APIRouter
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 
 from app.services.grok.services.chat import ChatService
@@ -152,6 +152,49 @@ def _image_field(response_format: str) -> str:
     if response_format == "url":
         return "url"
     return "b64_json"
+
+
+def _decode_image_payload(payload: str) -> tuple[bytes, str]:
+    if not isinstance(payload, str) or not payload.strip():
+        raise ValidationException(
+            message="Image payload is empty",
+            param="image",
+            code="empty_image",
+        )
+
+    body = payload.strip()
+    mime = "image/png"
+
+    if body.startswith("data:"):
+        if "," not in body:
+            raise ValidationException(
+                message="Invalid data URI image payload",
+                param="image",
+                code="invalid_image_payload",
+            )
+        header, body = body.split(",", 1)
+        mime_part = header[5:].split(";", 1)[0].strip() if header.startswith("data:") else ""
+        if mime_part:
+            mime = mime_part
+
+    try:
+        image_bytes = base64.b64decode(body, validate=True)
+    except binascii.Error:
+        raise ValidationException(
+            message="Image payload is not valid base64",
+            param="image",
+            code="invalid_image_payload",
+        )
+
+    if not image_bytes:
+        raise ValidationException(
+            message="Image payload is empty after decode",
+            param="image",
+            code="empty_image",
+        )
+
+    return image_bytes, mime
+
 
 def _validate_image_config(image_conf: ImageConfig, *, stream: bool):
     n = image_conf.n or 1
@@ -528,7 +571,6 @@ async def chat_completions(request: ChatCompletionRequest):
         image_conf = request.image_config or ImageConfig()
         _validate_image_config(image_conf, stream=bool(is_stream))
         response_format = _resolve_image_format(image_conf.response_format)
-        response_field = _image_field(response_format)
         n = image_conf.n or 1
 
         token_mgr = await get_token_manager()
@@ -566,19 +608,17 @@ async def chat_completions(request: ChatCompletionRequest):
                 headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
             )
 
-        data = [{response_field: img} for img in result.data]
-        return JSONResponse(
-            content={
-                "created": int(time.time()),
-                "data": data,
-                "usage": {
-                    "total_tokens": 0,
-                    "input_tokens": 0,
-                    "output_tokens": 0,
-                    "input_tokens_details": {"text_tokens": 0, "image_tokens": 0},
-                },
-            }
-        )
+        image_payload = next((img for img in result.data if isinstance(img, str) and img and img != "error"), None)
+        if not image_payload:
+            raise AppException(
+                message="Image generation failed",
+                error_type=ErrorType.SERVER.value,
+                code="image_generation_failed",
+                status_code=500,
+            )
+
+        image_bytes, media_type = _decode_image_payload(image_payload)
+        return Response(content=image_bytes, media_type=media_type)
 
     if model_info and model_info.is_image:
         prompt, _ = _extract_prompt_images(request.messages)
@@ -589,7 +629,6 @@ async def chat_completions(request: ChatCompletionRequest):
         image_conf = request.image_config or ImageConfig()
         _validate_image_config(image_conf, stream=bool(is_stream))
         response_format = _resolve_image_format(image_conf.response_format)
-        response_field = _image_field(response_format)
         n = image_conf.n or 1
         size = image_conf.size or "1024x1024"
         aspect_ratio_map = {
@@ -637,20 +676,17 @@ async def chat_completions(request: ChatCompletionRequest):
                 headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
             )
 
-        data = [{response_field: img} for img in result.data]
-        usage = result.usage_override or {
-            "total_tokens": 0,
-            "input_tokens": 0,
-            "output_tokens": 0,
-            "input_tokens_details": {"text_tokens": 0, "image_tokens": 0},
-        }
-        return JSONResponse(
-            content={
-                "created": int(time.time()),
-                "data": data,
-                "usage": usage,
-            }
-        )
+        image_payload = next((img for img in result.data if isinstance(img, str) and img and img != "error"), None)
+        if not image_payload:
+            raise AppException(
+                message="Image generation failed",
+                error_type=ErrorType.SERVER.value,
+                code="image_generation_failed",
+                status_code=500,
+            )
+
+        image_bytes, media_type = _decode_image_payload(image_payload)
+        return Response(content=image_bytes, media_type=media_type)
 
     if model_info and model_info.is_video:
         # 提取视频配置 (默认值在 Pydantic 模型中处理)
