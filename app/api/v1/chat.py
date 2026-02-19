@@ -209,7 +209,7 @@ async def _payload_to_data_uri(image_payload: str) -> str:
     return f"data:image/jpeg;base64,{payload}"
 
 
-def _build_image_block_response(*, model: str, data_uri: str, usage: dict) -> dict:
+def _build_image_link_response(*, model: str, image_ref: str, usage: dict) -> dict:
     created = int(time.time())
     return {
         "id": f"chatcmpl-img-{created}",
@@ -221,12 +221,8 @@ def _build_image_block_response(*, model: str, data_uri: str, usage: dict) -> di
                 "index": 0,
                 "message": {
                     "role": "assistant",
-                    "content": [
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": data_uri}
-                        }
-                    ],
+                    # Keep content as plain string URL/data-uri for maximum client compatibility.
+                    "content": image_ref,
                 },
                 "finish_reason": "stop",
             }
@@ -503,7 +499,7 @@ def validate_request(request: ChatCompletionRequest):
                 code="invalid_stream_n",
             )
 
-        response_format = _resolve_image_format(image_conf.response_format)
+        response_format = "url"
         image_conf.n = n
         image_conf.response_format = response_format
         if not image_conf.size:
@@ -609,7 +605,7 @@ async def chat_completions(request: ChatCompletionRequest):
         )
         image_conf = request.image_config or ImageConfig()
         _validate_image_config(image_conf, stream=bool(is_stream))
-        response_format = _resolve_image_format(image_conf.response_format)
+        response_format = "url"
         n = image_conf.n or 1
 
         token_mgr = await get_token_manager()
@@ -661,14 +657,14 @@ async def chat_completions(request: ChatCompletionRequest):
                 status_code=500,
             )
 
-        data_uri = await _payload_to_data_uri(image_payload)
+        image_ref = image_payload
         usage = {
             "total_tokens": 0,
             "input_tokens": 0,
             "output_tokens": 0,
             "input_tokens_details": {"text_tokens": 0, "image_tokens": 0},
         }
-        return JSONResponse(content=_build_image_block_response(model=request.model, data_uri=data_uri, usage=usage))
+        return JSONResponse(content=_build_image_link_response(model=request.model, image_ref=image_ref, usage=usage))
 
     if model_info and model_info.is_image:
         prompt, _ = _extract_prompt_images(request.messages)
@@ -740,14 +736,14 @@ async def chat_completions(request: ChatCompletionRequest):
                 status_code=500,
             )
 
-        data_uri = await _payload_to_data_uri(image_payload)
+        image_ref = image_payload
         usage = result.usage_override or {
             "total_tokens": 0,
             "input_tokens": 0,
             "output_tokens": 0,
             "input_tokens_details": {"text_tokens": 0, "image_tokens": 0},
         }
-        return JSONResponse(content=_build_image_block_response(model=request.model, data_uri=data_uri, usage=usage))
+        return JSONResponse(content=_build_image_link_response(model=request.model, image_ref=image_ref, usage=usage))
 
     if model_info and model_info.is_video:
         # 提取视频配置 (默认值在 Pydantic 模型中处理)
