@@ -7,6 +7,7 @@ import base64
 import binascii
 import time
 import json
+import asyncio
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse, JSONResponse
@@ -232,65 +233,37 @@ def _build_image_link_response(*, model: str, image_ref: str, usage: dict) -> di
     }
 
 
-async def _image_stream_to_openai_chunks(stream_data, *, model: str):
-    """Convert internal image SSE events to OpenAI chat.completion.chunk SSE."""
-    created = int(time.time())
-    chunk_id = f"chatcmpl-img-{created}"
+def _looks_like_final_jpeg(image_ref: str) -> bool:
+    ref = (image_ref or "").strip().lower()
+    if not ref:
+        return False
+    if ref.startswith("data:image/jpeg") or ref.startswith("data:image/jpg"):
+        return True
+    if ref.startswith("/9j/"):
+        return True
+    if "-final" in ref and (".jpg" in ref or ".jpeg" in ref):
+        return True
+    if ref.endswith(".jpg") or ref.endswith(".jpeg"):
+        return True
+    return False
 
-    async for raw in stream_data:
-        if not isinstance(raw, str) or not raw:
-            continue
-        for line in raw.splitlines():
-            if not line.startswith("data:"):
-                continue
-            payload = line[5:].strip()
-            if not payload or payload == "[DONE]":
-                continue
-            try:
-                evt = json.loads(payload)
-            except Exception:
-                continue
-            if evt.get("type") != "image_generation.completed":
-                continue
 
-            image_ref = evt.get("url") or evt.get("b64_json") or evt.get("base64")
-            if not image_ref:
-                continue
+def _pick_final_image_payload(payloads: List[str]) -> Optional[str]:
+    candidates = [p for p in payloads if isinstance(p, str) and p and p != "error"]
+    if not candidates:
+        return None
+    for c in candidates:
+        if _looks_like_final_jpeg(c):
+            return c
+    # fallback: prefer explicit final marker even if ext is not jpg
+    for c in candidates:
+        if "-final" in c.lower():
+            return c
+    return candidates[-1]
 
-            data_chunk = {
-                "id": chunk_id,
-                "object": "chat.completion.chunk",
-                "created": created,
-                "model": model,
-                "choices": [
-                    {
-                        "index": 0,
-                        "delta": {"content": f"![image]({image_ref})"},
-                        "finish_reason": None,
-                    }
-                ],
-            }
-            yield f"data: {json.dumps(data_chunk, ensure_ascii=False)}\n\n"
 
-            done_chunk = {
-                "id": chunk_id,
-                "object": "chat.completion.chunk",
-                "created": created,
-                "model": model,
-                "choices": [
-                    {
-                        "index": 0,
-                        "delta": {},
-                        "finish_reason": "stop",
-                    }
-                ],
-            }
-            yield f"data: {json.dumps(done_chunk, ensure_ascii=False)}\n\n"
-            yield "data: [DONE]\n\n"
-            return
-
-    # Ensure stream terminates even if upstream sent no completed image event
-    fallback_done = {
+def _build_text_chunk(*, chunk_id: str, created: int, model: str, text: str, finish_reason: Optional[str]):
+    return {
         "id": chunk_id,
         "object": "chat.completion.chunk",
         "created": created,
@@ -298,12 +271,133 @@ async def _image_stream_to_openai_chunks(stream_data, *, model: str):
         "choices": [
             {
                 "index": 0,
-                "delta": {},
-                "finish_reason": "stop",
+                "delta": {"content": text} if text else {},
+                "finish_reason": finish_reason,
             }
         ],
     }
-    yield f"data: {json.dumps(fallback_done, ensure_ascii=False)}\n\n"
+
+
+async def _image_stream_to_openai_chunks(stream_data, *, model: str):
+    """Convert internal image SSE events to OpenAI chat.completion.chunk SSE.
+
+    Rule:
+    - Ignore preview/medium images.
+    - Only emit final image (prefer jpeg).
+    - If a partial image appears but no final image arrives within 30s,
+      emit "生成失败请重试".
+    """
+    created = int(time.time())
+    chunk_id = f"chatcmpl-img-{created}"
+    stream_iter = stream_data.__aiter__()
+    partial_deadline: Optional[float] = None
+
+    while True:
+        timeout = None
+        if partial_deadline is not None:
+            timeout = max(0.0, partial_deadline - time.time())
+
+        try:
+            if timeout is None:
+                raw = await stream_iter.__anext__()
+            else:
+                raw = await asyncio.wait_for(stream_iter.__anext__(), timeout=timeout)
+        except asyncio.TimeoutError:
+            fail_chunk = _build_text_chunk(
+                chunk_id=chunk_id,
+                created=created,
+                model=model,
+                text="生成失败请重试",
+                finish_reason=None,
+            )
+            yield f"data: {json.dumps(fail_chunk, ensure_ascii=False)}\n\n"
+            done_chunk = _build_text_chunk(
+                chunk_id=chunk_id,
+                created=created,
+                model=model,
+                text="",
+                finish_reason="stop",
+            )
+            yield f"data: {json.dumps(done_chunk, ensure_ascii=False)}\n\n"
+            yield "data: [DONE]\n\n"
+            return
+        except StopAsyncIteration:
+            break
+
+        if not isinstance(raw, str) or not raw:
+            continue
+
+        for line in raw.splitlines():
+            if not line.startswith("data:"):
+                continue
+            payload = line[5:].strip()
+            if not payload or payload == "[DONE]":
+                continue
+
+            try:
+                evt = json.loads(payload)
+            except Exception:
+                continue
+
+            evt_type = evt.get("type")
+            if evt_type == "image_generation.partial_image":
+                if partial_deadline is None:
+                    partial_deadline = time.time() + 30
+                continue
+
+            if evt_type != "image_generation.completed":
+                continue
+
+            image_ref = evt.get("url") or evt.get("b64_json") or evt.get("base64")
+            if not image_ref:
+                continue
+
+            # only accept final jpeg-like output
+            if not _looks_like_final_jpeg(image_ref):
+                if partial_deadline is None:
+                    partial_deadline = time.time() + 30
+                continue
+
+            data_chunk = _build_text_chunk(
+                chunk_id=chunk_id,
+                created=created,
+                model=model,
+                text=f"![image]({image_ref})",
+                finish_reason=None,
+            )
+            yield f"data: {json.dumps(data_chunk, ensure_ascii=False)}\n\n"
+
+            done_chunk = _build_text_chunk(
+                chunk_id=chunk_id,
+                created=created,
+                model=model,
+                text="",
+                finish_reason="stop",
+            )
+            yield f"data: {json.dumps(done_chunk, ensure_ascii=False)}\n\n"
+            yield "data: [DONE]\n\n"
+            return
+
+    # stream ended without a valid final image
+    end_text = "生成失败请重试" if partial_deadline is not None else ""
+    if end_text:
+        fail_chunk = _build_text_chunk(
+            chunk_id=chunk_id,
+            created=created,
+            model=model,
+            text=end_text,
+            finish_reason=None,
+        )
+        yield f"data: {json.dumps(fail_chunk, ensure_ascii=False)}\n\n"
+
+    done_chunk = _build_text_chunk(
+        chunk_id=chunk_id,
+        created=created,
+        model=model,
+        text="",
+        finish_reason="stop",
+    )
+    yield f"data: {json.dumps(done_chunk, ensure_ascii=False)}\n\n"
     yield "data: [DONE]\n\n"
 
 
@@ -719,7 +813,7 @@ async def chat_completions(request: ChatCompletionRequest):
                 headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
             )
 
-        image_payload = next((img for img in result.data if isinstance(img, str) and img and img != "error"), None)
+        image_payload = _pick_final_image_payload(result.data)
         if not image_payload:
             raw_preview = ""
             try:
@@ -798,7 +892,7 @@ async def chat_completions(request: ChatCompletionRequest):
                 headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
             )
 
-        image_payload = next((img for img in result.data if isinstance(img, str) and img and img != "error"), None)
+        image_payload = _pick_final_image_payload(result.data)
         if not image_payload:
             raw_preview = ""
             try:
