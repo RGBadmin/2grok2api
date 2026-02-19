@@ -605,8 +605,13 @@ async def chat_completions(request: ChatCompletionRequest):
 
         image_payload = next((img for img in result.data if isinstance(img, str) and img and img != "error"), None)
         if not image_payload:
+            raw_preview = ""
+            try:
+                raw_preview = str(result.data[:3])
+            except Exception:
+                raw_preview = str(result.data)
             raise AppException(
-                message="Image generation failed",
+                message=f"Image generation failed: no valid image payload returned. upstream={raw_preview}",
                 error_type=ErrorType.SERVER.value,
                 code="image_generation_failed",
                 status_code=500,
@@ -685,8 +690,13 @@ async def chat_completions(request: ChatCompletionRequest):
 
         image_payload = next((img for img in result.data if isinstance(img, str) and img and img != "error"), None)
         if not image_payload:
+            raw_preview = ""
+            try:
+                raw_preview = str(result.data[:3])
+            except Exception:
+                raw_preview = str(result.data)
             raise AppException(
-                message="Image generation failed",
+                message=f"Image generation failed: no valid image payload returned. upstream={raw_preview}",
                 error_type=ErrorType.SERVER.value,
                 code="image_generation_failed",
                 status_code=500,
