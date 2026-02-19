@@ -2,6 +2,8 @@
 [app]
 # 应用访问地址（用于生成文件链接）
 app_url = "http://127.0.0.1:9765"
+# 对外可访问地址（用于返回给客户端的文件链接，优先于 app_url）
+public_base_url = ""
 # 后台管理密码
 app_key = "grok2api"
 # API 调用密钥（可选）

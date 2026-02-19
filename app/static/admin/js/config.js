@@ -40,6 +40,7 @@ const LOCALE_MAP = {
     "public_enabled": { title: "启用功能玩法", desc: "是否启用功能玩法入口（关闭则功能玩法页面不可访问）。" },
     "public_key": { title: "Public 密码", desc: "功能玩法页面的访问密码（可选）。" },
     "app_url": { title: "应用地址", desc: "当前 2grok2api 服务的外部访问 URL，用于文件链接访问。" },
+    "public_base_url": { title: "对外访问地址", desc: "返回给客户端的资源链接地址（建议填公网IP或域名，如 http://3.37.180.8:9765）。留空则使用应用地址。" },
     "image_format": { title: "图片格式", desc: "默认生成的图片格式（url 或 base64）。" },
     "video_format": { title: "视频格式", desc: "默认生成的视频格式（html 或 url，url 为处理后的链接）。" },
     "temporary": { title: "临时对话", desc: "是否默认启用临时对话模式。" },

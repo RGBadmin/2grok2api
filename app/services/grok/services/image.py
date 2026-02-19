@@ -346,6 +346,10 @@ class ImageWSBaseProcessor(BaseProcessor):
         return f"{image_id}.{ext}"
 
     def _build_file_url(self, filename: str) -> str:
+        public_base_url = get_config("app.public_base_url")
+        if public_base_url:
+            return f"{public_base_url.rstrip('/')}/v1/files/image/{filename}"
+
         app_url = get_config("app.app_url")
         if app_url:
             return f"{app_url.rstrip('/')}/v1/files/image/{filename}"
