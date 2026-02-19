@@ -52,7 +52,7 @@ docker compose up -d
 
 ## Admin Panel
 
-- Access: `http://<host>:8000/admin`
+- Access: `http://<host>:9765/admin`
 - Default password: `grok2api` (config `app.app_key`, recommended to change)
 
 **Features**:
@@ -76,7 +76,7 @@ docker compose up -d
 | `LOG_FILE_ENABLED` | Enable file logging | `true` | `false` |
 | `DATA_DIR` | Data dir (config/tokens/locks) | `./data` | `/data` |
 | `SERVER_HOST` | Bind address | `0.0.0.0` | `0.0.0.0` |
-| `SERVER_PORT` | Server port | `8000` | `8000` |
+| `SERVER_PORT` | Server port | `9765` | `9765` |
 | `SERVER_WORKERS` | Uvicorn worker count | `1` | `2` |
 | `SERVER_STORAGE_TYPE` | Storage type (`local`/`redis`/`mysql`/`pgsql`) | `local` | `pgsql` |
 | `SERVER_STORAGE_URL` | Storage DSN (optional for local) | `""` | `postgresql+asyncpg://user:password@host:5432/db` |
@@ -121,7 +121,7 @@ docker compose up -d
 > Generic endpoint: chat, image generation, image editing, video generation, video upscaling
 
 ```bash
-curl http://localhost:8000/v1/chat/completions \
+curl http://localhost:9765/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $GROK2API_API_KEY" \
   -d '{
@@ -188,7 +188,7 @@ curl http://localhost:8000/v1/chat/completions \
 > Image generation endpoint
 
 ```bash
-curl http://localhost:8000/v1/images/generations \
+curl http://localhost:9765/v1/images/generations \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $GROK2API_API_KEY" \
   -d '{
@@ -229,7 +229,7 @@ curl http://localhost:8000/v1/images/generations \
 > Image edit endpoint (multipart/form-data)
 
 ```bash
-curl http://localhost:8000/v1/images/edits \
+curl http://localhost:9765/v1/images/edits \
   -H "Authorization: Bearer $GROK2API_API_KEY" \
   -F "model=grok-imagine-1.0-edit" \
   -F "prompt=Make the image clearer" \
@@ -278,7 +278,7 @@ Config file: `data/config.toml`
 
 | Module | Field | Key | Description | Default |
 | :-- | :-- | :-- | :-- | :-- |
-| **app** | `app_url` | App URL | External base URL used for file links. | `http://127.0.0.1:8000` |
+| **app** | `app_url` | App URL | External base URL used for file links. | `http://127.0.0.1:9765` |
 |  | `app_key` | Admin password | Login password for admin panel. | `grok2api` |
 |  | `api_key` | API key | Optional API key for access. | `""` |
 |  | `image_format` | Image format | `url` or `base64`. | `url` |

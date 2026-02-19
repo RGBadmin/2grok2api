@@ -52,7 +52,7 @@ docker compose up -d
 
 ## 管理面板
 
-- 访问地址：`http://<host>:8000/admin`
+- 访问地址：`http://<host>:9765/admin`
 - 默认密码：`grok2api`（配置项 `app.app_key`，建议修改）
 
 **功能说明**：
@@ -76,7 +76,7 @@ docker compose up -d
 | `LOG_FILE_ENABLED` | 是否启用文件日志 | `true` | `false` |
 | `DATA_DIR` | 数据目录（配置/Token/锁） | `./data` | `/data` |
 | `SERVER_HOST` | 服务监听地址 | `0.0.0.0` | `0.0.0.0` |
-| `SERVER_PORT` | 服务端口 | `8000` | `8000` |
+| `SERVER_PORT` | 服务端口 | `9765` | `9765` |
 | `SERVER_WORKERS` | Uvicorn worker 数量 | `1` | `2` |
 | `SERVER_STORAGE_TYPE` | 存储类型（`local`/`redis`/`mysql`/`pgsql`） | `local` | `pgsql` |
 | `SERVER_STORAGE_URL` | 存储连接串（local 时可为空） | `""` | `postgresql+asyncpg://user:password@host:5432/db` |
@@ -121,7 +121,7 @@ docker compose up -d
 > 通用接口，支持对话聊天、图像生成、图像编辑、视频生成、视频超分
 
 ```bash
-curl http://localhost:8000/v1/chat/completions \
+curl http://localhost:9765/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $GROK2API_API_KEY" \
   -d '{
@@ -188,7 +188,7 @@ curl http://localhost:8000/v1/chat/completions \
 > 图像生成接口
 
 ```bash
-curl http://localhost:8000/v1/images/generations \
+curl http://localhost:9765/v1/images/generations \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $GROK2API_API_KEY" \
   -d '{
@@ -229,7 +229,7 @@ curl http://localhost:8000/v1/images/generations \
 > 图像编辑接口（multipart/form-data）
 
 ```bash
-curl http://localhost:8000/v1/images/edits \
+curl http://localhost:9765/v1/images/edits \
   -H "Authorization: Bearer $GROK2API_API_KEY" \
   -F "model=grok-imagine-1.0-edit" \
   -F "prompt=把图片变清晰" \
@@ -278,7 +278,7 @@ curl http://localhost:8000/v1/images/edits \
 
 | 模块 | 字段 | 配置名 | 说明 | 默认值 |
 | :-- | :-- | :-- | :-- | :-- |
-| **app** | `app_url` | 应用地址 | 当前 Grok2API 服务的外部访问 URL，用于文件链接访问。 | `http://127.0.0.1:8000` |
+| **app** | `app_url` | 应用地址 | 当前 Grok2API 服务的外部访问 URL，用于文件链接访问。 | `http://127.0.0.1:9765` |
 |  | `app_key` | 后台密码 | 登录 Grok2API 管理后台的密码（必填）。 | `grok2api` |
 |  | `api_key` | API 密钥 | 调用 Grok2API 服务的 Token（可选）。 | `""` |
 |  | `image_format` | 图片格式 | 生成的图片格式（url 或 base64）。 | `url` |

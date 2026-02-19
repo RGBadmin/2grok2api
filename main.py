@@ -119,7 +119,7 @@ if __name__ == "__main__":
     import uvicorn
 
     host = os.getenv("SERVER_HOST", "0.0.0.0")
-    port = int(os.getenv("SERVER_PORT", "8000"))
+    port = int(os.getenv("SERVER_PORT", "9765"))
     workers = int(os.getenv("SERVER_WORKERS", "1"))
 
     # 平台检查

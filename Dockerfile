@@ -66,8 +66,8 @@ COPY scripts ./scripts
 RUN mkdir -p /app/data /app/logs \
     && chmod +x /app/scripts/entrypoint.sh
 
-EXPOSE 8000
+EXPOSE 9765
 
 ENTRYPOINT ["/app/scripts/entrypoint.sh"]
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "9765"]
