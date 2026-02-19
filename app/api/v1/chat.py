@@ -379,7 +379,7 @@ async def _image_stream_to_openai_chunks(stream_data, *, model: str):
             evt_type = evt.get("type")
             if evt_type == "image_generation.partial_image":
                 if partial_deadline is None:
-                    partial_deadline = time.time() + 30
+                    partial_deadline = time.time() + 50
                 continue
 
             if evt_type == "error":
@@ -412,7 +412,7 @@ async def _image_stream_to_openai_chunks(stream_data, *, model: str):
             # only accept final jpeg-like output
             if not _looks_like_final_jpeg(image_ref):
                 if partial_deadline is None:
-                    partial_deadline = time.time() + 30
+                    partial_deadline = time.time() + 50
                 continue
 
             data_chunk = _build_text_chunk(
