@@ -33,6 +33,7 @@ from app.core.logger import logger, setup_logging  # noqa: E402
 from app.core.exceptions import register_exception_handlers  # noqa: E402
 from app.core.response_middleware import ResponseLoggerMiddleware  # noqa: E402
 from app.api.v1.chat import router as chat_router  # noqa: E402
+from app.api.v1.models import router as models_router  # noqa: E402
 from app.services.token import get_scheduler  # noqa: E402
 from app.api.v1.files import router as files_router  # noqa: E402
 from app.api.v1.admin_api import router as admin_router  # noqa: E402
@@ -110,9 +111,12 @@ def create_app() -> FastAPI:
     # 注册异常处理器
     register_exception_handlers(app)
 
-    # API: 仅暴露 chat/completions
+    # API: 暴露 chat/completions 与 models
     app.include_router(
         chat_router, prefix="/v1", dependencies=[Depends(verify_api_key)]
+    )
+    app.include_router(
+        models_router, prefix="/v1", dependencies=[Depends(verify_api_key)]
     )
 
     # files 路由（图片/视频访问）
