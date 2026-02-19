@@ -1,7 +1,10 @@
 services:
   grok2api:
-    container_name: grok2api
-    image: ghcr.io/chenyme/grok2api:latest
+    container_name: grok2api2
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: grok2api2:local
     ports:
       - "8000:8000"
     environment:
@@ -10,7 +13,7 @@ services:
       SERVER_PORT: 8000
       SERVER_WORKERS: 1
       SERVER_STORAGE_TYPE: local
-      # SERVER_STORAGE_URL: 
+      # SERVER_STORAGE_URL:
 
       # SERVER_STORAGE_TYPE: (local, redis, mysql, pgsql) default: local
       # SERVER_STORAGE_URL: (local mode is empty) default: empty
