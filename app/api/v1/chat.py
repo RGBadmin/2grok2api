@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Union
 import base64
 import binascii
 import time
+import json
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse, JSONResponse
@@ -229,6 +230,81 @@ def _build_image_link_response(*, model: str, image_ref: str, usage: dict) -> di
         ],
         "usage": usage,
     }
+
+
+async def _image_stream_to_openai_chunks(stream_data, *, model: str):
+    """Convert internal image SSE events to OpenAI chat.completion.chunk SSE."""
+    created = int(time.time())
+    chunk_id = f"chatcmpl-img-{created}"
+
+    async for raw in stream_data:
+        if not isinstance(raw, str) or not raw:
+            continue
+        for line in raw.splitlines():
+            if not line.startswith("data:"):
+                continue
+            payload = line[5:].strip()
+            if not payload or payload == "[DONE]":
+                continue
+            try:
+                evt = json.loads(payload)
+            except Exception:
+                continue
+            if evt.get("type") != "image_generation.completed":
+                continue
+
+            image_ref = evt.get("url") or evt.get("b64_json") or evt.get("base64")
+            if not image_ref:
+                continue
+
+            data_chunk = {
+                "id": chunk_id,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": model,
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {"content": image_ref},
+                        "finish_reason": None,
+                    }
+                ],
+            }
+            yield f"data: {json.dumps(data_chunk, ensure_ascii=False)}\n\n"
+
+            done_chunk = {
+                "id": chunk_id,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": model,
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {},
+                        "finish_reason": "stop",
+                    }
+                ],
+            }
+            yield f"data: {json.dumps(done_chunk, ensure_ascii=False)}\n\n"
+            yield "data: [DONE]\n\n"
+            return
+
+    # Ensure stream terminates even if upstream sent no completed image event
+    fallback_done = {
+        "id": chunk_id,
+        "object": "chat.completion.chunk",
+        "created": created,
+        "model": model,
+        "choices": [
+            {
+                "index": 0,
+                "delta": {},
+                "finish_reason": "stop",
+            }
+        ],
+    }
+    yield f"data: {json.dumps(fallback_done, ensure_ascii=False)}\n\n"
+    yield "data: [DONE]\n\n"
 
 
 def _validate_image_config(image_conf: ImageConfig, *, stream: bool):
@@ -638,7 +714,7 @@ async def chat_completions(request: ChatCompletionRequest):
 
         if result.stream:
             return StreamingResponse(
-                result.data,
+                _image_stream_to_openai_chunks(result.data, model=request.model),
                 media_type="text/event-stream",
                 headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
             )
@@ -717,7 +793,7 @@ async def chat_completions(request: ChatCompletionRequest):
 
         if result.stream:
             return StreamingResponse(
-                result.data,
+                _image_stream_to_openai_chunks(result.data, model=request.model),
                 media_type="text/event-stream",
                 headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
             )
