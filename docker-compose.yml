@@ -6,11 +6,11 @@ services:
       dockerfile: Dockerfile
     image: grok2api2:local
     ports:
-      - "8000:8000"
+      - "9765:9765"
     environment:
       TZ: Asia/Shanghai
       LOG_LEVEL: INFO
-      SERVER_PORT: 8000
+      SERVER_PORT: 9765
       SERVER_WORKERS: 1
       SERVER_STORAGE_TYPE: local
       # SERVER_STORAGE_URL:
