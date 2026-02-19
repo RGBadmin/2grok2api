@@ -8,7 +8,7 @@ import binascii
 import time
 
 from fastapi import APIRouter
-from fastapi.responses import StreamingResponse, JSONResponse, Response
+from fastapi.responses import StreamingResponse, JSONResponse
 import aiohttp
 from pydantic import BaseModel, Field
 
@@ -155,7 +155,7 @@ def _image_field(response_format: str) -> str:
     return "b64_json"
 
 
-async def _payload_to_binary(image_payload: str) -> tuple[bytes, str]:
+async def _payload_to_data_uri(image_payload: str) -> str:
     payload = (image_payload or "").strip()
     if not payload:
         raise ValidationException(
@@ -163,6 +163,9 @@ async def _payload_to_binary(image_payload: str) -> tuple[bytes, str]:
             param="image",
             code="empty_image",
         )
+
+    if payload.startswith("data:"):
+        return payload
 
     if payload.startswith("http://") or payload.startswith("https://"):
         timeout = aiohttp.ClientTimeout(total=120)
@@ -183,7 +186,8 @@ async def _payload_to_binary(image_payload: str) -> tuple[bytes, str]:
                             param="image",
                             code="empty_image",
                         )
-                    return data, ctype
+                    b64 = base64.b64encode(data).decode("ascii")
+                    return f"data:{ctype};base64,{b64}"
         except ValidationException:
             raise
         except Exception as e:
@@ -193,37 +197,42 @@ async def _payload_to_binary(image_payload: str) -> tuple[bytes, str]:
                 code="invalid_image_payload",
             )
 
-    mime = "image/jpeg"
-    body = payload
-    if payload.startswith("data:"):
-        if "," not in payload:
-            raise ValidationException(
-                message="Invalid data URI image payload",
-                param="image",
-                code="invalid_image_payload",
-            )
-        header, body = payload.split(",", 1)
-        mime_part = header[5:].split(";", 1)[0].strip() if header.startswith("data:") else ""
-        if mime_part:
-            mime = mime_part
-
+    # plain base64
     try:
-        image_bytes = base64.b64decode(body, validate=True)
+        base64.b64decode(payload, validate=True)
     except binascii.Error:
         raise ValidationException(
             message="Image payload is not valid base64",
             param="image",
             code="invalid_image_payload",
         )
+    return f"data:image/jpeg;base64,{payload}"
 
-    if not image_bytes:
-        raise ValidationException(
-            message="Image payload is empty after decode",
-            param="image",
-            code="empty_image",
-        )
 
-    return image_bytes, mime
+def _build_image_block_response(*, model: str, data_uri: str, usage: dict) -> dict:
+    created = int(time.time())
+    return {
+        "id": f"chatcmpl-img-{created}",
+        "object": "chat.completion",
+        "created": created,
+        "model": model,
+        "choices": [
+            {
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": data_uri}
+                        }
+                    ],
+                },
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": usage,
+    }
 
 
 def _validate_image_config(image_conf: ImageConfig, *, stream: bool):
@@ -652,8 +661,14 @@ async def chat_completions(request: ChatCompletionRequest):
                 status_code=500,
             )
 
-        image_bytes, media_type = await _payload_to_binary(image_payload)
-        return Response(content=image_bytes, media_type=media_type)
+        data_uri = await _payload_to_data_uri(image_payload)
+        usage = {
+            "total_tokens": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "input_tokens_details": {"text_tokens": 0, "image_tokens": 0},
+        }
+        return JSONResponse(content=_build_image_block_response(model=request.model, data_uri=data_uri, usage=usage))
 
     if model_info and model_info.is_image:
         prompt, _ = _extract_prompt_images(request.messages)
@@ -725,8 +740,14 @@ async def chat_completions(request: ChatCompletionRequest):
                 status_code=500,
             )
 
-        image_bytes, media_type = await _payload_to_binary(image_payload)
-        return Response(content=image_bytes, media_type=media_type)
+        data_uri = await _payload_to_data_uri(image_payload)
+        usage = result.usage_override or {
+            "total_tokens": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "input_tokens_details": {"text_tokens": 0, "image_tokens": 0},
+        }
+        return JSONResponse(content=_build_image_block_response(model=request.model, data_uri=data_uri, usage=usage))
 
     if model_info and model_info.is_video:
         # 提取视频配置 (默认值在 Pydantic 模型中处理)
